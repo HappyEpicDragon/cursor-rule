@@ -1,0 +1,61 @@
+---
+description: "硬件资源管理：GPU/CPU并行策略、tmux实验管理、进度监控"
+alwaysApply: true
+---
+
+# A. 硬件资源管理
+
+## 本机硬件
+AMD Threadripper 3990X 64核 / 4× RTX 3090 (24GiB) / 256GiB RAM
+
+## 启动实验前：资源检查（必做）
+
+```bash
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total --format=csv,noheader
+top -bn1 | head -5 && free -h
+```
+
+## 并行策略决策
+- GPU 显存 <4GiB 且利用率 <30% → 每卡可放 3 任务
+- GPU 显存 <8GiB 且利用率 <60% → 每卡 2 任务
+- CPU 总使用率 <30% → 可进一步增加并行数（上限：总核数/每进程核数）
+- 优先让重型训练独占 GPU，轻型评测/数据处理可共享
+
+## tmux 实验管理（必须遵守）
+- 所有超过 1 分钟的实验必须在 tmux session 中运行（防止客户端断开导致中断）
+- 每 GPU 或每实验组一个 session，命名有意义（如 `gpu0_train_xxx`）
+- **必须写脚本文件再运行**，tmux 不支持 heredoc 传命令
+- 脚本中用绝对路径调用解释器/包管理器（tmux 内 PATH 可能不完整）
+
+## 脚本模板
+
+```bash
+#!/bin/bash
+cd <PROJECT_ROOT>
+LOG=<LOG_DIR> && mkdir -p $LOG
+<ENV_PREFIX> python -u <script> <args> --device cuda:N \
+  > $LOG/gpuN_jobA.log 2>&1 &
+echo "launched (pids: $(jobs -p))"
+wait && echo "=== ALL DONE ==="
+```
+
+## 监控命令速查
+
+```bash
+# GPU 实时占用
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader
+
+# 崩溃检测
+grep -l 'Traceback\|Error\|Killed' <LOG_DIR>/*.log
+
+# 实时跟踪
+tail -f <LOG_DIR>/gpuN_jobA.log
+
+# 快速确认是否在跑
+tail -5 <LOG_DIR>/*.log
+```
+
+## Agent 行为准则
+- 启动实验前先跑资源检查，根据结果决定并行度
+- 多组实验尽量并行启动以充分利用 4 卡资源
+- 长时间训练配合三波次策略（wave1 完成后自动启动 wave2），减少人工干预
