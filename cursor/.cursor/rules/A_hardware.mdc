@@ -1,8 +1,6 @@
 ---
-description: "硬件资源管理：GPU/CPU并行策略、tmux实验管理、进度监控"
 alwaysApply: true
 ---
-
 # A. 硬件资源管理
 
 ## 本机硬件
